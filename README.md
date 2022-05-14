@@ -14,4 +14,4 @@ opencv_cuda4.5;
 
 cuda11.3;
 
-![add image](https://github.com/baiyuntao00/KinectFusion/tree/main/doc/render.png)
+![image](https://github.com/baiyuntao00/KinectFusion/raw/main/doc/render.png)
