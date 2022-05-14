@@ -1,4 +1,4 @@
-# KinectFusion
+# Online 3D Reconstruction-KinectFusion
 
 A 3D reconstruction project based on kinectfusion. The project is tested on Windows 10 and can be processed at the speed of about 20ms per frame.
 
