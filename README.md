@@ -14,5 +14,4 @@ opencv_cuda4.5;
 
 cuda11.3;
 
-![image](https://github.com/baiyuntao00/KinectFusion/raw/main/doc/raycast-phong.png)
-![image](https://github.com/baiyuntao00/KinectFusion/raw/main/doc/color-map.png)
+![image](https://github.com/baiyuntao00/KinectFusion/raw/main/doc/raycast-map.png)
