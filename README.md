@@ -13,3 +13,5 @@ Dependencies:
 opencv_cuda4.5;
 
 cuda11.3;
+
+![add image](https://github.com/baiyuntao00/KinectFusion/raw/master/doc/render.jpg)
