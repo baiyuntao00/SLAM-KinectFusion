@@ -2,25 +2,27 @@
 #include <device_types.hpp>
 #include <device_utils.cuh>
 #include <safe_call.hpp>
-
 //TODO:volume fusion
 namespace kf
 {
 namespace device
 {
     using namespace cv::cuda;
-    __global__ void kernal_resetVolume(cuTSDF tsdf)
+    __global__ void kernal_resetVolume(Volume vpointer)
     {
-         int x = threadIdx.x + blockIdx.x * blockDim.x;
-         int y = threadIdx.y + blockIdx.y * blockDim.y;
+        int x = threadIdx.x + blockIdx.x * blockDim.x;
+        int y = threadIdx.y + blockIdx.y * blockDim.y;
 
-         cuTSDF::elem_type *beg = tsdf(x, y);
-         cuTSDF::elem_type *end = beg + tsdf.znumber * tsdf.dims.z;
+        Volume::elem_type *beg = vpointer(x, y);
+        Volume::elem_type *end = beg + vpointer.znumber * vpointer.dims.z;
 
-         for(cuTSDF::elem_type* pos = beg; pos != end; pos = tsdf.zstep(pos))
-             *pos =pack_tsdf(0.f, 0);
-     }
-       void resetVolume(cuTSDF& vpointer)
+        for(Volume::elem_type* pos = beg; pos != end; pos = vpointer.zstep(pos))
+        {
+            set_tsdf_weight(*pos, 0.f, 0);
+            set_rgb(*pos, make_uchar3(0,0,0));
+        }
+     } 
+       void resetVolume(Volume& vpointer)
        {
         const dim3 blocks(32, 8);
         const dim3 grids(32,32);
@@ -30,10 +32,10 @@ namespace device
        //integrate
        struct tsdfhelper
        {
-           const cuIntrs intr;
-           const cuPose pose;
-           cuTSDF vpointer;
-           tsdfhelper(const cuIntrs &proj_, const cuPose &pose_,const cuTSDF& vpointer_):
+           const Intrs intr;
+           const PoseT pose;
+           Volume vpointer;
+           tsdfhelper(const Intrs &proj_, const PoseT &pose_,const Volume& vpointer_):
            intr(proj_),pose(pose_),vpointer(vpointer_){};
            __device__ void operator()(const PtrStepSz<float> dmap, PtrStepSz<uchar3> cmap) const
            {
@@ -46,7 +48,7 @@ namespace device
        			float3 v_z0 = make_float3(x, y, 0) * vpointer.voxel_size;
        			float3 camera_pos =pose.R * (v_z0 - pose.t);
        			float3 zstep = make_float3(pose.R.data[2].x, pose.R.data[2].y, pose.R.data[2].z)* vpointer.voxel_size.x;
-                cuTSDF::elem_type* vptr=vpointer(x,y);
+                Volume::elem_type* vptr=vpointer(x,y);
                 for (int z = 1; z < vpointer.dims.z; ++z)
        			{
                     vptr = vpointer.zstep(vptr);
@@ -59,28 +61,43 @@ namespace device
        				const float depth = dmap(uv.y, uv.x);
        				if (depth <= 0)
        					continue;
-       				const float3 xylambda = intr.reproj(uv.x,uv.y,1.f);
-       				// 计算得到公式7中的 lambda
+       				const float3 xylambda = intr.reproj(uv.x,uv.y, 1.f);
+       				// lambda
        				const float lambda = __m_norm(xylambda);
                     const float sdf = (-1.f) * (__fdividef(1.f, lambda) * __m_norm(camera_pos) - depth);
                     if (sdf >= -vpointer.trun_dist) {
        					const float tsdf = fmin(1.f, __fdividef(sdf, vpointer.trun_dist));
-       					const float pre_tsdf = tsdf_x(*vptr);
-       					const int pre_weight = tsdf_y(*vptr);
+       					const float pre_tsdf = voxel_tsdf(*vptr);
+       					const int pre_weight = voxel_weight(*vptr);
        
        					const int add_weight = 1;
        
        					const int new_weight = min(pre_weight + add_weight, MAX_WEIGHT);
        					const float new_tsdf= __fdividef(__fmaf_rn(pre_tsdf, pre_weight, tsdf), pre_weight + add_weight);
-                        *vptr = pack_tsdf(new_tsdf, new_weight);
-                        //success!
+                        set_tsdf_weight(*vptr, new_tsdf, new_weight);
+
+                        float thres_color=__fdividef(vpointer.trun_dist, 2);
+                        if (sdf <= thres_color && sdf >= -thres_color) 
+                        {
+                            uchar3 model_color = get_rgb(*vptr);
+                            const uchar3 pixel_cmap = cmap(uv.y, uv.x);
+                            float c = __int2float_rn(new_weight + add_weight);
+
+                            float m = new_weight * model_color.x + pixel_cmap.x;
+                            model_color.x=static_cast<uchar>(__fdividef(m,c));
+                            m = new_weight * model_color.y + pixel_cmap.y;
+                            model_color.y=static_cast<uchar>(__fdividef(m,c));
+                            m = new_weight * model_color.z + pixel_cmap.z;
+                            model_color.z=static_cast<uchar>(__fdividef(m,c));
+                            set_rgb(*vptr, model_color);   
+                        }
                        }
                    }
            }
        };
        __global__ void kernel_integrate(const tsdfhelper ther, const PtrStepSz<float> dmap, PtrStepSz<uchar3> cmap) 
        { ther(dmap,cmap); };
-       void integrate(const cuIntrs &intr, const cuPose &pose,cuTSDF &vpointer, const GpuMat &dmap,const GpuMat &cmap)
+       void integrate(const Intrs &intr, const PoseT &pose,Volume &vpointer, const GpuMat &dmap,const GpuMat &cmap)
        {
         tsdfhelper ther(intr, pose, vpointer);
 
@@ -114,7 +131,7 @@ namespace device
             tnear = fmaxf(fmaxf(tmin.x, tmin.y), fmaxf(tmin.x, tmin.z));
             tfar = fminf(fminf(tmax.x, tmax.y), fminf(tmax.x, tmax.z));
 	    }
-       __device__ float interpolate(const cuTSDF& vpointer, const float3& p_voxels)
+       __device__ float interpolate(const Volume& vpointer, const float3& p_voxels)
         {
             float3 cf = p_voxels;
 
@@ -129,26 +146,26 @@ namespace device
             float c = cf.z - g.z;
 
             float tsdf = 0.f;
-            tsdf += tsdf_x(*vpointer(g.x + 0, g.y + 0, g.z + 0)) * (1 - a) * (1 - b) * (1 - c);
-            tsdf += tsdf_x(*vpointer(g.x + 0, g.y + 0, g.z + 1)) * (1 - a) * (1 - b) *      c;
-            tsdf += tsdf_x(*vpointer(g.x + 0, g.y + 1, g.z + 0)) * (1 - a) *      b  * (1 - c);
-            tsdf += tsdf_x(*vpointer(g.x + 0, g.y + 1, g.z + 1)) * (1 - a) *      b  *      c;
-            tsdf += tsdf_x(*vpointer(g.x + 1, g.y + 0, g.z + 0)) *      a  * (1 - b) * (1 - c);
-            tsdf += tsdf_x(*vpointer(g.x + 1, g.y + 0, g.z + 1)) *      a  * (1 - b) *      c;
-            tsdf += tsdf_x(*vpointer(g.x + 1, g.y + 1, g.z + 0)) *      a  *      b  * (1 - c);
-            tsdf += tsdf_x(*vpointer(g.x + 1, g.y + 1, g.z + 1)) *      a  *      b  *      c;
+            tsdf += voxel_tsdf(*vpointer(g.x + 0, g.y + 0, g.z + 0)) * (1 - a) * (1 - b) * (1 - c);
+            tsdf += voxel_tsdf(*vpointer(g.x + 0, g.y + 0, g.z + 1)) * (1 - a) * (1 - b) *      c;
+            tsdf += voxel_tsdf(*vpointer(g.x + 0, g.y + 1, g.z + 0)) * (1 - a) *      b  * (1 - c);
+            tsdf += voxel_tsdf(*vpointer(g.x + 0, g.y + 1, g.z + 1)) * (1 - a) *      b  *      c;
+            tsdf += voxel_tsdf(*vpointer(g.x + 1, g.y + 0, g.z + 0)) *      a  * (1 - b) * (1 - c);
+            tsdf += voxel_tsdf(*vpointer(g.x + 1, g.y + 0, g.z + 1)) *      a  * (1 - b) *      c;
+            tsdf += voxel_tsdf(*vpointer(g.x + 1, g.y + 1, g.z + 0)) *      a  *      b  * (1 - c);
+            tsdf += voxel_tsdf(*vpointer(g.x + 1, g.y + 1, g.z + 1)) *      a  *      b  *      c;
             return tsdf;
         }
     struct raycasthelper
     {
-        const cuTSDF vpointer;
-        const cuIntrs intr;
-        const cuPose pose;
+        const Volume vpointer;
+        const Intrs intr;
+        const PoseT pose;
         float step_len;
         float3 voxel_size_inv;
         float3 gradient_delta;
         
-        raycasthelper(const cuIntrs& reproj_,const cuTSDF& vpointer_,const cuPose& pose_):
+        raycasthelper(const Intrs& reproj_,const Volume& vpointer_,const PoseT& pose_):
         intr(reproj_),vpointer(vpointer_),pose(pose_){
             step_len = vpointer_.voxel_size.x;
             gradient_delta = vpointer_.voxel_size*0.5f;
@@ -166,7 +183,7 @@ namespace device
                 return __m_nan();
             }
             else
-                return tsdf_x(*vpointer(x, y, z));
+                return voxel_tsdf(*vpointer(x, y, z));
         };
         __device__ float3 compute_normal(const float3& p) const
         {
@@ -183,7 +200,7 @@ namespace device
             float Fz1 = interpolate(vpointer, make_float3(p.x, p.y, p.z + gradient_delta.z) * voxel_size_inv);
             float Fz2 = interpolate(vpointer, make_float3(p.x, p.y, p.z - gradient_delta.z) * voxel_size_inv);
             n.z = __fdividef(Fz1 - Fz2, gradient_delta.z);
-            normalize(n);
+            __m_normalize(n);
             return n;
         };
         __device__ void operator()(PtrStepSz<float3>vmap, PtrStepSz<float3> nmap)const
@@ -240,7 +257,7 @@ namespace device
     };
     __global__ void kernal_raycast(const raycasthelper rcher, PtrStepSz<float3> vmap,  PtrStepSz<float3> nmap)
     { rcher(vmap, nmap); };
-    void raycast(const cuIntrs&reproj, const cuPose& pose, const cuTSDF &vpointer, GpuMat&vmap, GpuMat &nmap)
+    void raycast(const Intrs&reproj, const PoseT& pose, const Volume &vpointer, GpuMat&vmap, GpuMat &nmap)
     {
         dim3 block(32, 8);
         dim3 grid(DIVUP(vmap.cols, block.x),DIVUP(vmap.rows, block.y));
@@ -251,4 +268,105 @@ namespace device
         cudaSafeCall (cudaGetLastError());      
     }
 };
+}
+//TODO: extrace point cloud
+namespace kf
+{
+    namespace device
+    {
+        __global__ void extract_points_kernel(const Volume vpointer, Array<Point3RGB> varray, int *point_num)
+        {
+            int x = blockIdx.x * blockDim.x + threadIdx.x;
+            int y = blockIdx.y * blockDim.y + threadIdx.y;
+        
+            if (x >= vpointer.dims.x - 1 || y >=  vpointer.dims.y - 1)
+                return;
+        
+            for (int z = 0; z < vpointer.dims.z - 1; ++z) 
+            {
+                const float tsdf = voxel_tsdf(*vpointer(x,y,z));
+                if (tsdf == 0 || tsdf <= -0.99f || tsdf >= 0.99f)
+                    continue;
+        
+                const int wex = voxel_weight(*vpointer(x+1, y, z));
+                const int wey = voxel_weight(*vpointer(x, y+1, z));
+                const int wez = voxel_weight(*vpointer(x, y, z+1));
+                if (wex <= 0 || wey <= 0 || wez <= 0)
+                    continue;
+        
+                const float tsdfx = voxel_tsdf(*vpointer(x+1, y, z));
+                const float tsdfy = voxel_tsdf(*vpointer(x, y+1, z));
+                const float tsdfz = voxel_tsdf(*vpointer(x, y, z+1));
+        
+                const bool is_surface_x = ((tsdf > 0) && (tsdfx < 0)) || ((tsdf < 0) && (tsdfx > 0));
+                const bool is_surface_y = ((tsdf > 0) && (tsdfy < 0)) || ((tsdf < 0) && (tsdfy > 0));
+                const bool is_surface_z = ((tsdf > 0) && (tsdfz < 0)) || ((tsdf < 0) && (tsdfz > 0));
+        
+                if (is_surface_x || is_surface_y || is_surface_z) {
+                    float3 normal;
+                    normal.x = (tsdfx - tsdf);
+                    normal.y = (tsdfy - tsdf);
+                    normal.z = (tsdfz - tsdf);
+                    if (__m_norm(normal) == 0)
+                        continue;
+                    __m_normalize(normal);
+        
+                    int count = 0;
+                    if (is_surface_x) count++;
+                    if (is_surface_y) count++;
+                    if (is_surface_z) count++;
+                    int index = atomicAdd(point_num, count);
+        
+                    const uchar3 color = get_rgb(*vpointer(x,y,z));
+
+                    float3 position = make_float3((static_cast<float>(x) + 0.5f) *vpointer.voxel_size.x,
+                        (static_cast<float>(y) + 0.5f) *vpointer.voxel_size.y,
+                        (static_cast<float>(z) + 0.5f) *vpointer.voxel_size.z);
+                    if (is_surface_x) {
+                        position.x = position.x - (tsdf / (tsdfx - tsdf)) * vpointer.voxel_size.x;
+                        
+                        set_point(*varray(index),position, normal);
+                        set_rgb(*varray(index),color);
+                        index ++;
+                    }
+                    if (is_surface_y) {
+                        position.y -= (tsdf / (tsdfy - tsdf)) *vpointer.voxel_size.y;
+        
+                        set_point(*varray(index),position, normal);
+                        set_rgb(*varray(index),color);
+                        index ++;
+                    }
+                    if (is_surface_z) {
+                        position.z -= (tsdf / (tsdfz - tsdf)) * vpointer.voxel_size.z;
+        
+                        set_point(*varray(index),position, normal);
+                        set_rgb(*varray(index),color);
+                        index ++;
+                    }
+                }
+            }
+        }
+        void extract_points(const Volume& vpointer, Array<Point3RGB> &varray)
+        {
+            int *dev_points_num;
+            cudaMalloc(&dev_points_num, sizeof(int));
+            cudaMemset(dev_points_num, 0, sizeof(int));
+
+            dim3 threads(32, 32);
+            dim3 blocks((vpointer.dims.x + threads.x - 1) / threads.x,
+                (vpointer.dims.y + threads.y - 1) / threads.y);
+            extract_points_kernel << <blocks, threads >> > (vpointer, 
+                                                            varray,
+                                                            dev_points_num);
+                                                            
+            cudaSafeCall(cudaGetLastError());
+            cudaThreadSynchronize();
+
+            int *points_num_label = new int;
+            cudaMemcpy(points_num_label, dev_points_num, sizeof(int), cudaMemcpyDeviceToHost);
+            varray.elem_num = *points_num_label;
+            cudaFree(dev_points_num);
+            delete[] points_num_label;
+        }
+    }
 }

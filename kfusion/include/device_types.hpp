@@ -6,44 +6,40 @@
 #include <cstddef>
 #include <types.hpp>
 #include <math.h>
+#include <cuda_array.hpp>
 
 #define DIVUP(a, b) (a + b - 1) / b
+#define MAXPOINTNUM 2000000
+//TODO: struct data
 namespace kf
 {
 	namespace device
 	{
 		using namespace cv::cuda;
 		//此处定义设备内存存储方式
-		struct cuMat3f
-		{
-			float3 data[3];
-		};
-		struct cuPose
-		{
-			cuMat3f R;
-			float3 t;
-		};
-		struct cuIntrs
+		struct Point3RGB {float3 pos; float3 normal; uchar3 rgb;};
+		struct Point3 {float3 pos; float3 normal;};
+
+		struct PoseR {float3 data[3];};
+
+		struct PoseT {PoseR R;float3 t;};
+
+		struct Intrs
 		{
 			float2 f, c;
 			float2 finv;
-			cuIntrs(){};
-			// host:
-			cuIntrs(const Intrinsics &intr_)
-			{
-				f = make_float2(intr_.fx, intr_.fy);
-				c = make_float2(intr_.cx, intr_.cy);
-				finv = make_float2(1.f / intr_.fx, 1.f / intr_.fy);
-			}
-			// device:
+			Intrs();
+			Intrs(const Intrinsics &intr_);
 			__device__ float3 reproj(int u, int v, float z) const;
 			__device__ int2 proj(const float3 &p) const;
 		};
-		struct cuTSDF
+
+		struct Voxel {short tsdf;short weight;uchar3 rgb;};
+
+		struct Volume
 		{
 		public:
-			typedef short2 elem_type;
-
+			typedef Voxel elem_type;
 			elem_type *const data_;
 			int3 dims;
 			float3 volume_range;
@@ -51,32 +47,15 @@ namespace kf
 			float trun_dist;
 			int znumber;
 			// host:
-			cuTSDF(elem_type *data, const int3 dims_, const float3 volume_range_, const float3 voxel_size_)
-				: data_(data), dims(dims_),
-				  volume_range(volume_range_),
-				  voxel_size(voxel_size_)
-			{
-				znumber = dims_.x * dims_.y;
-			};
+			Volume(elem_type *data, const int3 dims_, const float3 volume_range_, const float3 voxel_size_);
 			// host and device:
-			__device__ __forceinline__ elem_type *operator()(int x, int y, int z) const
-			{
-				return data_ + x + y * dims.x + z * znumber;
-			};
-			__device__ __forceinline__ elem_type *operator()(int x, int y, int z)
-			{
-				return data_ + x + y * dims.x + z * znumber;
-			};
-			__device__ __forceinline__ elem_type *operator()(int x, int y) const
-			{
-				return data_ + x + dims.x * y;
-			};
-			__device__ __forceinline__ elem_type *zstep(elem_type *const ptr) const
-			{
-				return ptr + znumber;
-			};
+			__device__ __forceinline__ elem_type *operator()(int x, int y, int z) const;
+			__device__ __forceinline__ elem_type *operator()(int x, int y, int z);
+			__device__ __forceinline__ elem_type *operator()(int x, int y) const;
+			__device__ __forceinline__ elem_type *zstep(elem_type *const ptr) const;
 		};
-		struct cuICP
+
+		struct ICP
 		{
 			PtrStep<float3> cur_vmap;
 			PtrStep<float3> cur_nmap;
@@ -85,50 +64,62 @@ namespace kf
 
 			float min_angle;
 			float max_dist_squ;
-			cuPose prepose;
-			cuIntrs intr;
-
-			cuPose curpose;
+			PoseT prepose;
+			Intrs intr;
+			PoseT curpose;
 			int2 size;
 
-			cuICP(const float dist_thres_, const float angle_thres_,
-				  const cuPose &prepose_)
-			{
-				min_angle = angle_thres_;
-				max_dist_squ = dist_thres_;
-				prepose = prepose_;
-				// size = make_int2(sx, sy);
-			}
-			void setIntrs(const cuIntrs intrs_, int x, int y)
-			{
-				intr = intrs_;
-				size = make_int2(x, y);
-			};
+			ICP(const float dist_thres_, const float angle_thres_,const PoseT &prepose_);
+			void setIntrs(const Intrs intrs_, int x, int y);
 			__device__ bool findCoresp(int x, int y, float3 &nd, float3 &d, float3 &s) const;
 		};
+
+		template<class T>
+        struct Array
+		{
+			typedef T elem_type;
+			elem_type* const data;
+            int elem_num;
+
+			Array(T* data_):data(data_),elem_num(0){};
+			__device__ __forceinline__ T *operator()(int index) const
+			{return data+index;};
+			__device__ __forceinline__ T *operator()(int index)
+			{return data+index;}
+		};
+	}
+}
+//TODO: .cu function
+namespace kf
+{
+	namespace device
+	{
 		// tsdf_volume
-		void resetVolume(cuTSDF &vpointer);
-		void raycast(const cuIntrs &intr, const cuPose &pose, const cuTSDF &vol, GpuMat &vmap, GpuMat &nmap);
-		void integrate(const cuIntrs &intr, const cuPose &pose, cuTSDF &volume, const GpuMat &dmap, const GpuMat &cmap);
+		void resetVolume(Volume &vpointer);
+		void raycast(const Intrs &intr, const PoseT &pose, const Volume &vol, GpuMat &vmap, GpuMat &nmap);
+		void integrate(const Intrs &intr, const PoseT &pose, Volume &volume, const GpuMat &dmap, const GpuMat &cmap);
 		// image process
 		void renderPhong(const float3 &poset, const GpuMat &vmap, const GpuMat &nmap, GpuMat &cmap);
 		void renderNormals(const GpuMat &nmap, GpuMat &cmap);
 		void depthTruncation(GpuMat &dmap, const float max_dist);
 		void getNormalmap(const GpuMat &vmap, GpuMat &nmap);
-		void getVertexmap(const GpuMat &vmag, GpuMat &nmap, const cuIntrs &params);
+		void getVertexmap(const GpuMat &vmag, GpuMat &nmap, const Intrs &params);
 		void resizePointsNormals(const GpuMat &vex_big, const GpuMat &nor_big, GpuMat &vex_small, GpuMat &nor_small);
 		// icp
-		void rigidICP(const cuICP &icphelper, cv::Matx66d &A, cv::Vec6d &b);
-
+		void rigidICP(const ICP &icphelper, cv::Matx66d &A, cv::Vec6d &b);
+		// file
+		void extract_points(const Volume &vpointer, int *points_num_label, float *points, float *normals,unsigned char*colors);
+		void extract_points(const Volume& vpointer, Array<Point3RGB> &varrray);
 	}
 }
-// math_function
+
+//TODO:  mathfunction
 namespace kf
 {
 	namespace device
 	{
 		//__device__ static float NaNf() { return __int_as_float(0x7fffffff); /*CUDART_NAN_F*/ };
-		__device__ __inline__ float3 operator*(const cuMat3f &v1, const float3 &v2)
+		__device__ __inline__ float3 operator*(const PoseR &v1, const float3 &v2)
 		{
 			return make_float3(v1.data[0].x * v2.x + v1.data[1].x * v2.y + v1.data[2].x * v2.z,
 							   v1.data[0].y * v2.x + v1.data[1].y * v2.y + v1.data[2].y * v2.z,
@@ -142,9 +133,9 @@ namespace kf
 		{
 			return make_float3(v(0), v(1), v(2));
 		};
-		__host__ __inline__ cuMat3f cv2cuda(const cv::Matx33f &m)
+		__host__ __inline__ PoseR cv2cuda(const cv::Matx33f &m)
 		{
-			cuMat3f res;
+			PoseR res;
 			for (int i = 0; i < 3; i++)
 			{
 				res.data[i].x = m(0, i);
@@ -153,17 +144,17 @@ namespace kf
 			}
 			return res;
 		};
-		__host__ __inline__ cuPose cv2cuda(const cv::Affine3f &v)
+		__host__ __inline__ PoseT cv2cuda(const cv::Affine3f &v)
 		{
-			cuPose out;
+			PoseT out;
 			out.R = cv2cuda(v.rotation());
 			out.t = cv2cuda(v.translation());
 			return out;
 		};
 		//
-		__host__ __inline__ cuPose cv2cuda(const cv::Matx33f &R, const cv::Vec3f &t)
+		__host__ __inline__ PoseT cv2cuda(const cv::Matx33f &R, const cv::Vec3f &t)
 		{
-			cuPose out;
+			PoseT out;
 			out.R = cv2cuda(R);
 			out.t = cv2cuda(t);
 			return out;

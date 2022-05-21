@@ -1,6 +1,7 @@
 #include <device_types.hpp>
+#include <cuda_array.hpp>
 #include <device_memory.hpp>
-
+#include <fstream>
 namespace kf
 {
 	typedef cv::cuda::GpuMat GpuMat;
@@ -23,7 +24,7 @@ namespace kf
 		void integrate(const GpuMat& dmap,const GpuMat& cmap);
 		void raycast(GpuMat &vmap, GpuMat &nmap);
 
-		void extracePointCloud();
+		void extracePointCloud(std::string path);
 		//
 		cv::Vec3f VoxelSize();
 		cv::Vec3f SceneSize();
@@ -39,5 +40,13 @@ namespace kf
 		Intrinsics intr;
 		float trun_dist;
 		int max_weight;
-	};
+	};  
+}
+//TODO:file
+namespace kf
+{
+	namespace file
+	{
+		void exportPly(const std::string &filename, const device::Point3RGB*pcdata, int point_num);
+	}
 }

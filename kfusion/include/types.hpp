@@ -78,4 +78,5 @@ namespace kf
 		};
     };
     inline float deg2rad (float alpha) { return alpha * 0.017453293f; }
+
 }

@@ -18,9 +18,9 @@ bool kf::ICPRegistration::rigidTransform(cv::Affine3f &curpose, const Frame *cfr
     cv::Matx33f R = curpose.rotation();
     cv::Vec3f t = curpose.translation();
 
-    device::cuICP icphelper(dist_thres,
-                            angle_thres,
-                            device::cv2cuda(R.inv(), t));
+    device::ICP icphelper(dist_thres,
+                          angle_thres,
+                          device::cv2cuda(R.inv(), t));
 
     for (int level = iters.size() - 1; level >= 0; level--)
     {
@@ -28,7 +28,7 @@ bool kf::ICPRegistration::rigidTransform(cv::Affine3f &curpose, const Frame *cfr
         icphelper.cur_nmap = cframe->nmap[level];
         icphelper.pre_vmap = pframe->vmap[level];
         icphelper.pre_nmap = pframe->nmap[level];
-        icphelper.setIntrs(device::cuIntrs(intrs.level(level)), intrs.level(level).width, intrs.level(level).height);
+        icphelper.setIntrs(device::Intrs(intrs.level(level)), intrs.level(level).width, intrs.level(level).height);
         for (int i = 0; i < iters[level]; i++)
         {
             cv::Matx66d A; /* 行优先 */

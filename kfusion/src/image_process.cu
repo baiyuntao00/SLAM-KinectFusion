@@ -26,7 +26,7 @@ namespace kf
 			cudaSafeCall(cudaGetLastError());
 		}
 		//
-		__global__ void kernel_getVertexmap(const PtrStepSz<float> dmap, PtrStep<float3> vmap, const cuIntrs params)
+		__global__ void kernel_getVertexmap(const PtrStepSz<float> dmap, PtrStep<float3> vmap, const Intrs params)
 		{
 			const int x = blockIdx.x * blockDim.x + threadIdx.x;
 			const int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -42,7 +42,7 @@ namespace kf
 				vmap(y, x) = params.reproj(x, y, depth_value);
 		}
 
-		void getVertexmap(const GpuMat& dmap, GpuMat& vmap, const cuIntrs& params)
+		void getVertexmap(const GpuMat& dmap, GpuMat& vmap, const Intrs& params)
 		{
 			dim3 block(32, 8);
 			dim3 grid(1, 1, 1);
@@ -79,7 +79,6 @@ namespace kf
 				if (normal.z > 0)
 					normal *= rev;
 			}
-
 			normalize(normal);
 			nmap(y,x) = normal;
 		}

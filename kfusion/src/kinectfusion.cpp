@@ -37,19 +37,15 @@ kf::kinectfusion::~kinectfusion()
 cv::Mat kf::kinectfusion::getRenderMap(DISPLAY_TYPES V)
 {
 	cv::Mat result;
-	if (V == RAW_NORMALS)
-	{
-		device::renderNormals(pframe->nmap[0], pframe->cmap);
-		pframe->cmap.download(result);
-	}
-	else if (V == RAW_DEPTH)
+	if (V == RAYCAST_PHONG)
 	{
 		device::renderPhong(device::cv2cuda(curpose.translation()), pframe->vmap[0], pframe->nmap[0], pframe->cmap);
 		pframe->cmap.download(result);
 	}
-	else if (V == RAYCAST)
+	else if (V == RAYCAST_NORMAL)
 	{
-		//
+		device::renderNormals(pframe->nmap[0], pframe->cmap);
+		pframe->cmap.download(result);
 	}
 	else if (V == DEPTHMAP)
 	{
@@ -66,6 +62,7 @@ void kf::kinectfusion::imageProcess(cv::Mat cmap_, cv::Mat dmap_)
 	cv::cuda::Stream stream;
 	for (int level = 1; level < params_.pyramidHeight; level++)
 		cv::cuda::pyrDown(cframe->dmap[level - 1], cframe->dmap[level], stream);
+
 	for (int level = 0; level < params_.pyramidHeight; level++)
 	{
 		GpuMat tempMat = cframe->dmap[level];
@@ -79,11 +76,10 @@ void kf::kinectfusion::imageProcess(cv::Mat cmap_, cv::Mat dmap_)
 		tempMat.release();
 	}
 	stream.waitForCompletion();
-	// cuda::waitAllDefaultStream();
 
 	for (int level = 0; level < params_.pyramidHeight; level++)
 	{
-		device::getVertexmap(cframe->dmap[level], cframe->vmap[level], device::cuIntrs(intr_.level(level)));
+		device::getVertexmap(cframe->dmap[level], cframe->vmap[level], device::Intrs(intr_.level(level)));
 		device::getNormalmap(cframe->vmap[level], cframe->nmap[level]);
 	}
 }
@@ -96,17 +92,13 @@ void kf::kinectfusion::pipeline(cv::Mat cmap_, cv::Mat dmap_)
 	// icp
 	if (frame_count > 0)
 	{
-
 		if (!icp.rigidTransform(curpose, cframe, pframe))
 		{
 			std::cout << "tracking fail!" << std::endl;
-			return;
-		}
-		else
-		{
-			std::cout << curpose.matrix << std::endl;
+			reset();
 		}
 	}
+	pose_record.push_back(curpose);
 	// volume
 	vdata->setPose(curpose);
 	vdata->integrate(cframe->dmap[0], cframe->cmap);
@@ -120,17 +112,24 @@ void kf::kinectfusion::pipeline(cv::Mat cmap_, cv::Mat dmap_)
 									pframe->vmap[level],
 									pframe->nmap[level]);
 	}
-
+	std::cout << "KinectFusion:"<<"frame:"<<frame_count<<"|time:" << clock() - time_start << " ms" << std::endl;
+	std::cout << curpose.matrix << std::endl;
 	frame_count++;
-	std::cout << "KinectFusion: time:" << clock() - time_start << " ms" << std::endl;
 	cframe->reset();
 }
-
+void kf::kinectfusion::reset()
+{
+	frame_count = 0;
+	cframe->reset();
+	pframe->reset();
+	vdata->reset();
+	curpose = pose_record[0];
+	pose_record.clear();
+	
+}
 void kf::kinectfusion::extracePointcloud(std::string path)
 {
-	int pointcloud_buffer_size = 3 * 2000000;
-	file::PointCloud cloud_data = device::extract_points(volume_, pointcloud_buffer_size);
-	file::exportPly(file_name, cloud_data);
+	vdata->extracePointCloud(path);
 }
 kf::kinectfuison_params kf::kinectfuison_params::default_params()
 {
@@ -154,6 +153,5 @@ kf::kinectfuison_params kf::kinectfuison_params::default_params()
 	p.tsdf_max_weight = 64;
 	// volume pose
 	p.volume_pose.Identity();
-	// p.volume_pose = cv::Affine3f().translate((-p.volu_range[0] / 2, -p.volu_range[1] / 2, 0.5f));
 	return p;
 }

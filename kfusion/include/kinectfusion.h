@@ -2,8 +2,8 @@
 #include <types.hpp>
 #include <device_types.hpp>
 #include <tsdf_volume.hpp>
-#include <file.h>
 #include <icp_registration.hpp>
+
 namespace kf
 {
     struct kinectfuison_params
@@ -36,11 +36,11 @@ namespace kf
         ~kinectfusion();
 
         void pipeline(cv::Mat cmap_, cv::Mat dmap_);
+        void reset();
         //
         enum DISPLAY_TYPES{
-            RAW_NORMALS,
-            RAW_DEPTH,
-            RAYCAST,
+            RAYCAST_PHONG,
+            RAYCAST_NORMAL,
             DEPTHMAP
         };
         cv::Mat getRenderMap(DISPLAY_TYPES V);
@@ -52,7 +52,7 @@ namespace kf
     public:
         int frame_count;
         float frame_time;
-        std::vector<cv::Affine3f> camera_trail;
+        std::vector<cv::Affine3f> pose_record;
 
     private:
         void imageProcess(cv::Mat cmap_, cv::Mat dmap_);
@@ -60,7 +60,7 @@ namespace kf
     private:
         Frame *cframe;
         Frame *pframe;
-        cv::Mat rcmap;
+        // cv::Mat rcmap;
         TSDFVolume *vdata;
         ICPRegistration icp;
         Intrinsics intr_;

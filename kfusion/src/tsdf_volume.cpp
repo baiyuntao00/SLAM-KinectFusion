@@ -22,16 +22,16 @@ namespace kf
 	{
 		dims = dims_;
 		int voxels_number = dims_(0) * dims_(1) * dims_(2);
-		vdata.create(2 * voxels_number * sizeof(unsigned short));
+		vdata.create(voxels_number * sizeof(device::Voxel));
 		reset();
 	}
 	void TSDFVolume::reset()
 	{
 
-		device::cuTSDF vpointer((device::cuTSDF::elem_type *)(vdata.data()),
-							   device::cv2cuda(dims),
-							   device::cv2cuda(scene_size),
-						       device::cv2cuda(voxel_size));
+		device::Volume vpointer((device::Volume::elem_type *)vdata.data(),
+								device::cv2cuda(dims),
+								device::cv2cuda(scene_size),
+								device::cv2cuda(voxel_size));
 		device::resetVolume(vpointer);
 	}
 	void TSDFVolume::release()
@@ -41,20 +41,73 @@ namespace kf
 	//
 	void TSDFVolume::integrate(const GpuMat &dmap, const GpuMat &cmap)
 	{
-		device::cuTSDF vpointer((device::cuTSDF::elem_type *)(vdata.data()),
+		device::Volume vpointer((device::Volume::elem_type *)vdata.data(),
 								device::cv2cuda(dims),
 								device::cv2cuda(scene_size),
 								device::cv2cuda(voxel_size));
 		vpointer.trun_dist = trun_dist;
 		cv::Affine3f pose_inv = cv::Affine3f(pose.rotation().inv(), pose.translation());
-		device::integrate(device::cuIntrs(intr), device::cv2cuda(pose_inv), vpointer, dmap, cmap);
+		device::integrate(device::Intrs(intr), device::cv2cuda(pose_inv), vpointer, dmap, cmap);
 	}
 	void TSDFVolume::raycast(GpuMat &vmap, GpuMat &nmap)
 	{
-	    device::cuTSDF vpointer((device::cuTSDF::elem_type *)(vdata.data()),
+		device::Volume vpointer((device::Volume::elem_type *)vdata.data(),
 								device::cv2cuda(dims),
 								device::cv2cuda(scene_size),
 								device::cv2cuda(voxel_size));
-		device::raycast(device::cuIntrs(intr), device::cv2cuda(pose), vpointer, vmap, nmap);
+		device::raycast(device::Intrs(intr), device::cv2cuda(pose), vpointer, vmap, nmap);
+	}
+	void TSDFVolume::extracePointCloud(std::string path)
+	{
+		device::Volume vpointer((device::Volume::elem_type *)vdata.data(),
+								device::cv2cuda(dims),
+								device::cv2cuda(scene_size),
+								device::cv2cuda(voxel_size));
+		CudaArray<device::Point3RGB> pc(MAXPOINTNUM);
+		
+		device::Array<device::Point3RGB> varray((device::Point3RGB *)pc.data());
+		device::extract_points(vpointer, varray);
+		device::Point3RGB *hvarray=new device::Point3RGB[varray.elem_num];
+		pc.deviceTohost(hvarray);
+		file::exportPly(path, hvarray, varray.elem_num);
+		pc.release();
+		delete[] hvarray;
+	}
+};
+// TODO: extrace point cloud
+namespace kf
+{
+	namespace file
+	{
+		void exportPly(const std::string &filename, const device::Point3RGB *pcdata, int point_num)
+		{
+			std::ofstream file_out{filename};
+			if (!file_out.is_open())
+				return;
+			file_out << "ply" << std::endl;
+			file_out << "format ascii 1.0" << std::endl;
+			file_out << "element vertex " << point_num << std::endl;
+			file_out << "property float x" << std::endl;
+			file_out << "property float y" << std::endl;
+			file_out << "property float z" << std::endl;
+			file_out << "property float nx" << std::endl;
+			file_out << "property float ny" << std::endl;
+			file_out << "property float nz" << std::endl;
+			file_out << "property uchar red" << std::endl;
+			file_out << "property uchar green" << std::endl;
+			file_out << "property uchar blue" << std::endl;
+			file_out << "end_header" << std::endl;
+
+			for (int i = 0; i < point_num; i++)
+			{
+				float3 vertex = pcdata[i].pos;
+				float3 normal = pcdata[i].normal;
+				uchar3 color = pcdata[i].rgb;
+
+				file_out << vertex.x << " " << vertex.y << " " << vertex.z << " " << normal.x << " " << normal.y << " "
+						 << normal.z << " ";
+				file_out << static_cast<int>(color.z) << " " << static_cast<int>(color.y) << " " << static_cast<int>(color.x) << std::endl;
+			}
+		}
 	}
 }

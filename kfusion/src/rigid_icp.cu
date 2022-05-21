@@ -4,24 +4,22 @@
 
 namespace kf
 {
-namespace device {
+namespace device 
+{
 
 	// some icp params
-const int  BLOCK_SIZE_X=32;
-const int  BLOCK_SIZE_Y=32;
-const int  BUFFER_SIZE=27;
-const size_t BIT_LENGTH = BUFFER_SIZE* sizeof(float);
+    const int  BLOCK_SIZE_X=32;
+    const int  BLOCK_SIZE_Y=32;
+    const int  BUFFER_SIZE=27;
+    const size_t BIT_LENGTH = BUFFER_SIZE* sizeof(float);
 
 	template<int SIZE>
 	static __device__ __forceinline__ void reduce(volatile double* buffer)
 	{
 		const int thread_id = threadIdx.y * blockDim.x + threadIdx.x;
 		double value = buffer[thread_id];
-
-		// step 1 归约过程开始, 之所以这样做是为了充分利用 GPU 的并行特性
 		if (SIZE >= 1024) {
 			if (thread_id < 512) buffer[thread_id] = value = value + buffer[thread_id + 512];
-			// 一定要同步! 因为如果block规模很大的话, 其中的线程是分批次执行的, 这里就会得到错误的结果
 			__syncthreads();
 		}
 		if (SIZE >= 512) {
@@ -45,7 +43,7 @@ const size_t BIT_LENGTH = BUFFER_SIZE* sizeof(float);
 			if (SIZE >= 2) buffer[thread_id] = value = value + buffer[thread_id + 1];
 		} 
 	}
-	__device__ bool cuICP::findCoresp(const int x,const int y, float3& n, float3& d, float3& s)const
+	__device__ bool ICP::findCoresp(const int x,const int y, float3& n, float3& d, float3& s)const
 	{
 		bool result=false;
 		if (x < size.x && y < size.y) 
@@ -98,7 +96,7 @@ const size_t BIT_LENGTH = BUFFER_SIZE* sizeof(float);
 		return result;
 
 	}
-	__global__ void kernel_rigidICP(const cuICP icphelper, float* global_buffer,const int pitch)
+	__global__ void kernel_rigidICP(const ICP icphelper, float* global_buffer,const int pitch)
 	{
 		const int x = blockIdx.x * blockDim.x + threadIdx.x;
 		const int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -111,14 +109,14 @@ const size_t BIT_LENGTH = BUFFER_SIZE* sizeof(float);
 		{
 			*(float3*)&row[0] =cross(s,n);
 			*(float3*)&row[3] = n;
-			// 矩阵b中当前点贡献的部分
+
 			row[6] = dot(n, d - s);
 		}
 		else
 			row[0] = row[1] = row[2] = row[3] = row[4] = row[5] = row[6] = 0.f;
 
 		__shared__ double smem[BLOCK_SIZE_X * BLOCK_SIZE_Y];
-		// 计算当前线程的一维索引
+
 		const int tid = threadIdx.y * blockDim.x + threadIdx.x;
 
 		int shift = 0;
@@ -130,10 +128,7 @@ const size_t BIT_LENGTH = BUFFER_SIZE* sizeof(float);
 
 				reduce<BLOCK_SIZE_X * BLOCK_SIZE_Y>(smem);
 				if (tid == 0)
-				{
 					global_buffer[(shift++)*pitch+gridDim.x * blockIdx.y + blockIdx.x]=smem[0];
-					// global_buffer.ptr(shift++)[gridDim.x * blockIdx.y + blockIdx.x] = smem[0];
-				}
 			}
 		}// 归约累加
 	}
@@ -142,38 +137,28 @@ const size_t BIT_LENGTH = BUFFER_SIZE* sizeof(float);
 	{
 		float sum = 0.0;
 
-		// 每个线程对应一个 block 的某项求和的结果, 获取之
-		// 但是 blocks 可能很多, 这里是以512为一批进行获取, 加和处理的. 640x480只用到300个blocks.
 		for (int t = threadIdx.x; t < length; t += 512)
 			sum += *(global_buffer+blockIdx.x*pitch+t);
-		//printf("%lf,\n", global_buffer.ptr(blockIdx.x));
-		// 对于 GTX 1070, 每个 block 的 shared_memory 最大大小是 48KB, 足够使用了, 这里相当于只用了 1/12
-		// 前面设置线程个数为这些, 也是为了避免每个 block 中的 shared memory 超标, 又能够尽可能地使用所有的 shared memory
+
 		__shared__ double smem[512];
 
-		// 注意超过范围的线程也能够执行到这里, 上面的循环不会执行, sum=0, 因此保存到 smem 对后面的归约过程没有影响
 		smem[threadIdx.x] = sum;
-		// 同时运行512个, 一个warp装不下,保险处理就是进行同步
+
 		__syncthreads();
 
-		// 512个线程都归约计算
 		reduce<512>(smem);
 
-		// 第0线程负责将每一项的最终求和结果进行转存
 		if (threadIdx.x == 0)
 			output[blockIdx.x] = smem[0];
 	};
 
 	// 使用GPU并行计算矩阵A和向量b
-	void rigidICP(const cuICP& icphelper, cv::Matx66d&A, cv::Vec6d&b)
-	{	// grid.x = static_cast<unsigned int>(std::ceil(icphelper.size.x / block.x));
-		// grid.y = static_cast<unsigned int>(std::ceil(icphelper.size.y / block.y));
+	void rigidICP(const ICP& icphelper, cv::Matx66d&A, cv::Vec6d&b)
+	{
 		dim3 block(BLOCK_SIZE_X, BLOCK_SIZE_Y);
 		dim3 grid(static_cast<unsigned int>(std::ceil(icphelper.size.x / BLOCK_SIZE_X)),
 				  static_cast<unsigned int>(std::ceil(icphelper.size.y / BLOCK_SIZE_Y)));
 
-		grid.x = static_cast<unsigned int>(std::ceil(icphelper.size.x / block.x));
-		grid.y = static_cast<unsigned int>(std::ceil(icphelper.size.y / block.y));
 		size_t pitch;
 		float* global_buffer;
 		cudaMallocPitch((void **)&global_buffer, &pitch, BIT_LENGTH, grid.x * grid.y);
@@ -188,6 +173,7 @@ const size_t BIT_LENGTH = BUFFER_SIZE* sizeof(float);
 		cudaSafeCall(cudaGetLastError());
 
 		cudaMemcpy(h_sum_buffer, d_sum_buffer, BIT_LENGTH, cudaMemcpyDeviceToHost);
+
 		int shift = 0;
 		for (int i = 0; i < 6; ++i) { 
 			for (int j = i; j < 7; ++j) { 

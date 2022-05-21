@@ -25,6 +25,4 @@ namespace kf
         void *data_;
         int *refcount;
     };
-    // template<class T> inline       T* m_cuda::DeviceMemory::ptr() { return (T*)data_; }
-    // template<class T> inline const T* m_cuda::DeviceMemory::ptr() const { return (const T*)data_; }
 }
