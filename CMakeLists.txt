@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.5)
 ## PROJECT NAME
 ##
 set(CMAKE_CUDA_ARCHITECTURES 75)
-project(KINFU LANGUAGES CUDA CXX)
+project(KINECTFUSION LANGUAGES CUDA CXX)
 ##
 ## COMPILER SETTINGS
 ##
@@ -17,9 +17,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(CUDA REQUIRED)
 set(CUDA_NVCC_FLAGS -gencode arch=compute_75,code=sm_75;-G;-g)
 
-
-# project(KINFU LANGUAGE CXX CUDA)
-##opencv
+##opencv-cuda
 find_package(OpenCV CONFIG REQUIRED)
 set(OPENCV_LIBS opencv_ml opencv_dnn opencv_dpm opencv_hdf opencv_cudawarping opencv_cudaimgproc)
 
