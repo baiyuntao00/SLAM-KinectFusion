@@ -15,3 +15,4 @@ reference:
 
 data: the dataset in "dataset" repository can be used to test the system. In addition, the system also supports the input of Kinect 2.0 and Realsense.
 ![image3](https://github.com/baiyuntao00/KinectFusion/raw/main/doc/3D.png)
+There are more results in doc folder.
