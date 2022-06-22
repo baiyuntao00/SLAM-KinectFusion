@@ -13,5 +13,5 @@ reference:
 * Newcombe et al, KinectFusion: Real-time dense surface mapping and tracking
 * https://github.com/PointCloudLibrary/pcl/tree/master/gpu/kinfu
 
-data: The dataset in "dataset" repository can be used to test the system. In addition, the system also supports the input of Kinect 2.0 and Realsense.
+data: the dataset in "dataset" repository can be used to test the system. In addition, the system also supports the input of Kinect 2.0 and Realsense.
 ![image3](https://github.com/baiyuntao00/KinectFusion/raw/main/doc/3D.png)
