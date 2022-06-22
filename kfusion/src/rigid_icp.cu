@@ -48,63 +48,42 @@ namespace device
 		bool result=false;
 		if (x < size.x && y < size.y) 
 		{
-			float3 normal_current;
-			normal_current.x = cur_nmap(y, x).x;
-			if (!isnan(normal_current.x))
+			if (!isnan(cur_nmap(y, x).x))
 			{
-				float3 vertex_current = cur_vmap(y, x);
+				float3 vcur = curpose.R * cur_vmap(y, x)+ curpose.t;
+				int2 pixel= intr.proj(vcur);
 
-				float3 vertex_current_global = curpose.R * vertex_current + curpose.t;
-
-				float3 vertex_current_camera = prepose.R * (vertex_current_global - prepose.t);
-
-				int2 pixel= intr.proj(vertex_current_camera);
-
-				if (pixel.x >= 0 && pixel.y >= 0 && pixel.x < size.x && pixel.y < size.y &&vertex_current_camera.z >= 0)
+				if (vcur.z>0 && pixel.x >= 0 && pixel.y >= 0 && pixel.x < size.x && pixel.y < size.y)
 				{
-					float3 normal_previous_global;
+						float3 vpre=pre_vmap(pixel.y, pixel.x);
+						const float dist_2 = norm(vcur-vpre);
+						if (dist_2 <= max_dist_squ) {
 
-					normal_previous_global.x = pre_nmap(pixel.y, pixel.x).x;
-					if (!isnan(normal_previous_global.x)) {
-						// 获取对应顶点
-						float3 vertex_previous_global;
-						vertex_previous_global = pre_vmap(pixel.y, pixel.x);
+							float3 ncur = curpose.R *cur_nmap(y, x);	        
+							float3 npre = pre_nmap(pixel.y, pixel.x);
+							float3 sinangle = cross(ncur, npre);
 
-						const float distance = norm(vertex_previous_global- vertex_current_global);
-						if (distance <= max_dist_squ) {
-							normal_current.y = cur_nmap(y, x).y;
-							normal_current.z = cur_nmap(y, x).z;
-							float3 normal_current_global = curpose.R * normal_current;
-
-							normal_previous_global.y = pre_nmap(pixel.y, pixel.x).y;
-							normal_previous_global.z = pre_nmap(pixel.y, pixel.x).z;
-
-							float3 sinangle = cross(normal_current_global, normal_previous_global);
 							const float sine = norm(sinangle);
 							if (sine <= min_angle)
 							{
-								n = normal_previous_global;
-								d = vertex_previous_global;
-								s = vertex_current_global;
+								n = npre;
+								d = vpre;
+								s = vcur;
 								result = true;
 							}
 						}
 					};
 				};
 			}
-		}
 		return result;
 
-	}
+		}
 	__global__ void kernel_rigidICP(const ICP icphelper, float* global_buffer,const int pitch)
 	{
 		const int x = blockIdx.x * blockDim.x + threadIdx.x;
 		const int y = blockIdx.y * blockDim.y + threadIdx.y;
-		float3 n;       // 目标点的法向, KinectFusion中为上一帧的点云对应的法向量
-		float3 d;        // 目标点,      KinectFusion中为上一帧的点云
-		float3 s;     // 源点,        KinectFusion中为当前帧的点云
+		float3 n,d,s;
 		float row[7];
-
 		if(icphelper.findCoresp(x,y,n,d,s))
 		{
 			*(float3*)&row[0] =cross(s,n);

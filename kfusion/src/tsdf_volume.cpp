@@ -7,7 +7,7 @@ namespace kf
 	cv::Vec3i kf::TSDFVolume::Dims() { return dims; };
 	void kf::TSDFVolume::setTrunDist(const float v) { trun_dist = v; };
 	void kf::TSDFVolume::setMaxWeight(const int w) { max_weight = w; };
-	void kf::TSDFVolume::setPose(const cv::Affine3f p) { pose = p; };
+	void kf::TSDFVolume::setPose(const cv::Affine3f p) { volume_pose = p; };
 	void kf::TSDFVolume::setIntrinsics(const Intrinsics i) { intr = i; };
 
 	TSDFVolume::TSDFVolume(const cv::Vec3f scene_size_, const cv::Vec3i dims_) : scene_size(scene_size_),
@@ -28,7 +28,7 @@ namespace kf
 	void TSDFVolume::reset()
 	{
 
-		device::Volume vpointer((device::Volume::elem_type *)vdata.data(),
+		device::Volume vpointer(vdata.ptr<device::Volume::elem_type>(),
 								device::cv2cuda(dims),
 								device::cv2cuda(scene_size),
 								device::cv2cuda(voxel_size));
@@ -39,75 +39,47 @@ namespace kf
 		vdata.release();
 	}
 	//
-	void TSDFVolume::integrate(const GpuMat &dmap, const GpuMat &cmap)
+	void TSDFVolume::integrate(const cv::Affine3f& camera_pose, const GpuMat &dmap, const GpuMat &cmap)
 	{
-		device::Volume vpointer((device::Volume::elem_type *)vdata.data(),
+		device::Volume vpointer(vdata.ptr<device::Volume::elem_type>(),
 								device::cv2cuda(dims),
 								device::cv2cuda(scene_size),
 								device::cv2cuda(voxel_size));
+		//修改：
 		vpointer.trun_dist = trun_dist;
-		cv::Affine3f pose_inv = cv::Affine3f(pose.rotation().inv(), pose.translation());
-		device::integrate(device::Intrs(intr), device::cv2cuda(pose_inv), vpointer, dmap, cmap);
+		cv::Affine3f vol2cam = camera_pose.inv() * volume_pose;
+		device::integrate(device::Intrs(intr), device::cv2cuda(vol2cam), vpointer, dmap, cmap);
 	}
-	void TSDFVolume::raycast(GpuMat &vmap, GpuMat &nmap)
+	void TSDFVolume::raycast(const cv::Affine3f& camera_pose, GpuMat &vmap, GpuMat &nmap)
 	{
-		device::Volume vpointer((device::Volume::elem_type *)vdata.data(),
+		device::Volume vpointer(vdata.ptr<device::Volume::elem_type>(),
 								device::cv2cuda(dims),
 								device::cv2cuda(scene_size),
 								device::cv2cuda(voxel_size));
-		device::raycast(device::Intrs(intr), device::cv2cuda(pose), vpointer, vmap, nmap);
+		cv::Affine3f cam2vol = volume_pose.inv() * camera_pose;
+		device::raycast(device::Intrs(intr), device::cv2cuda(cam2vol),
+						device::cv2cuda(cam2vol.rotation().inv(cv::DECOMP_SVD)), vpointer, vmap, nmap);
 	}
-	void TSDFVolume::extracePointCloud(std::string path)
+	cv::Mat TSDFVolume::fetchPointCloud()
 	{
-		device::Volume vpointer((device::Volume::elem_type *)vdata.data(),
+		enum
+		{
+			DEFAULT_CLOUD_BUFFER_SIZE = 10 * 1000 * 1000
+		};
+		if (cloud.empty())
+			cloud.create(DEFAULT_CLOUD_BUFFER_SIZE);
+
+		device::Volume vpointer(vdata.ptr<device::Volume::elem_type>(),
 								device::cv2cuda(dims),
 								device::cv2cuda(scene_size),
-								device::cv2cuda(voxel_size));
-		CudaArray<device::Point3RGB> pc(MAXPOINTNUM);
-		
-		device::Array<device::Point3RGB> varray((device::Point3RGB *)pc.data());
-		device::extract_points(vpointer, varray);
-		device::Point3RGB *hvarray=new device::Point3RGB[varray.elem_num];
-		pc.deviceTohost(hvarray);
-		file::exportPly(path, hvarray, varray.elem_num);
-		pc.release();
-		delete[] hvarray;
+								device::cv2cuda(voxel_size)); 
+		size_t size = device::extract_points(vpointer, cloud, device::cv2cuda(volume_pose));
+		Point3Map dev_pointcloud = Point3Map((device::Point3 *)cloud.ptr(), size);
+		//
+		cv::Mat points_array = cv::Mat(1, (int)size, CV_32FC3);
+		dev_pointcloud.download(points_array.ptr<device::Point3>());
+		dev_pointcloud.release();
+		cloud.release();
+		return points_array;
 	}
 };
-// TODO: extrace point cloud
-namespace kf
-{
-	namespace file
-	{
-		void exportPly(const std::string &filename, const device::Point3RGB *pcdata, int point_num)
-		{
-			std::ofstream file_out{filename};
-			if (!file_out.is_open())
-				return;
-			file_out << "ply" << std::endl;
-			file_out << "format ascii 1.0" << std::endl;
-			file_out << "element vertex " << point_num << std::endl;
-			file_out << "property float x" << std::endl;
-			file_out << "property float y" << std::endl;
-			file_out << "property float z" << std::endl;
-			file_out << "property float nx" << std::endl;
-			file_out << "property float ny" << std::endl;
-			file_out << "property float nz" << std::endl;
-			file_out << "property uchar red" << std::endl;
-			file_out << "property uchar green" << std::endl;
-			file_out << "property uchar blue" << std::endl;
-			file_out << "end_header" << std::endl;
-
-			for (int i = 0; i < point_num; i++)
-			{
-				float3 vertex = pcdata[i].pos;
-				float3 normal = pcdata[i].normal;
-				uchar3 color = pcdata[i].rgb;
-
-				file_out << vertex.x << " " << vertex.y << " " << vertex.z << " " << normal.x << " " << normal.y << " "
-						 << normal.z << " ";
-				file_out << static_cast<int>(color.z) << " " << static_cast<int>(color.y) << " " << static_cast<int>(color.x) << std::endl;
-			}
-		}
-	}
-}

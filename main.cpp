@@ -1,68 +1,124 @@
+/*This is an kinectfusion-based 3D reconstruction system madde by Yuntao Bai.
+Four modules: image process, icp, tsdf fusion and raycast 
+3rdparts:
+* cuda 11.3
+* opencv_cuda_viz (vcpkg)
 
-//
-#include <MicrosoftKinect.h>
+performance:
+running at about 20 ms per frame in windows.
+
+reference:
+* Newcombe et al, KinectFusion: Real-time dense surface mapping and tracking
+* https://github.com/PointCloudLibrary/pcl/tree/master/gpu/kinfu
+
+email: ytb_shanghai@163.com (Yuntao Bai)
+6.22.2022*/
+
+
+#include <depth_sensor.h>
 #include <kinectfusion.h>
 #include <string>
 #include <iostream>
-
-void stop() { system("pause"); };
-void interaction(kf::kinectfusion *kinfu)
+// viz
+#include <opencv2/viz/vizcore.hpp>
+struct KinectFusionAPP
 {
-	switch (cv::waitKey(1))
-	{
-	case 's':
-		std::exit(EXIT_SUCCESS);
-		break;
-	case 'p':
-	{
-		// kinfu->extraceCloud(std::string("C:/Users/HP/Desktop/pointcloud") + std::to_string(clock()) + ".ply");
-		std::cout << "successfully export pointclud!" << std::endl;
-		stop();
-		break;
-	}
-	case 'm':
-	{
-		// kinfu->extraceMesh(std::string("C:/Users/HP/Desktop/mesh") + std::to_string(clock()) + ".ply");
-		std::cout << "successfully export mesh!" << std::endl;
-		stop();
-		break;
-	}
-	case 'r':
-	{
-		// kinfu->reset();
-		std::cout << "Reset!" << std::endl;
-		break;
-	}
-	}
-}
-//
-int main(int argc, char *argv[])
-{
+	depth_sensor *camera;
 	kf::kinectfuison_params kfparams;
-	kf::MicrosoftKinect *camera = new kf::MicrosoftKinect();
-	if (!camera->initMicrosoftKinect("../../dataset"))
+	kf::kinectfusion *kinfu;
+	cv::viz::Viz3d mviz;
+
+	void KeyboardCallback(int key)
 	{
-		std::exit(EXIT_SUCCESS);
+		switch (key)
+		{
+		case 27:
+			exit(0);
+			break;
+		case 32:
+			system("pause");
+			break;
+		case 't':
+		case 'T':
+			kinfu->extracePointcloud();
+			kinfu->savePointcloud("../../pointcloud.ply");
+			std::cout << "Save PLY" << std::endl;
+			break;
+		case 'e':
+		case 'E':
+			kinfu->reset();
+			break;
+		}
 	}
-	kf::kinectfusion *kinfu = new kf::kinectfusion(camera->params, kfparams.default_params());
-	std::cout << "KinectFusion: Start" << std::endl;
-	// init
-	try
+	//
+	KinectFusionAPP(depth_sensor *camera_)
 	{
-		while (cv::waitKey(1))
+		camera = new depth_sensor();
+		camera = camera_;
+		kfparams = kfparams.default_params();
+		kinfu = new kf::kinectfusion(camera->params, kfparams);
+		cv::viz::WCube cube(cv::Vec3d::all(0.f), cv::Vec3d(kfparams.volu_range), true, cv::viz::Color::apricot());
+		mviz.showWidget("cube", cube, kfparams.volu_pose);
+		mviz.showWidget("world-coor", cv::viz::WCoordinateSystem(0.3));
+	}
+	bool execute()
+	{
+		do
 		{
 			if (!camera->getFrame())
 			{
-				std::cout << "KinectFusion: End" << std::endl;
-				std::exit(EXIT_SUCCESS);
+				std::cout << "no image!" << std::endl;
+				break;
 			}
-			cv::imshow("image", camera->color_map);
+			// kinectfusion
 			kinfu->pipeline(camera->color_map, camera->depth_map);
-			cv::imshow("kinfu", kinfu->getRenderMap(kinfu->RAW_DEPTH));
-			//cv::imshow("raycast", kinfu->getRayCastMap());
-			//break;
-			interaction(kinfu);
-		}
+
+			// 2D show (Phong or Normal)
+			cv::imshow("Scene", kinfu->getRenderMap(kinfu->PHONG));
+			cv::imshow("Depth", camera->depth_map / 4000.f);
+			cv::imshow("Color", camera->color_map);
+
+			// 3D show
+			if (kinfu->frame_count % 5 == 0) //每5帧更新一次3D
+			{
+				mviz.showWidget("cloud", cv::viz::WCloud(kinfu->extracePointcloud()));
+				mviz.showWidget("camera", viz::WCoordinateSystem(0.3), kinfu->getCurCameraPose());
+			}
+
+			KeyboardCallback(waitKey(10));
+			//
+			mviz.spinOnce(1, true);
+
+		} while (!mviz.wasStopped());
+
+		// output camera poses
+		std::ofstream outfile("../../poses.txt");
+		for (int i = 0; i < kinfu->pose_record.size(); i++)
+			outfile << kinfu->pose_record[i].matrix << std::endl;
+		outfile.close();
+		std::cout << "end!" << std::endl;
+		return true;
+	}
+	void release()
+	{
+		camera->release();
+		kinfu->release();
+	}
+};
+
+//
+int main(int argc, char *argv[])
+{
+	std::cout << "KinectFusion: start" << std::endl;
+	//初始化相機
+	depth_sensor camera;
+	camera.open("../../dataset");
+	//初始化app
+	KinectFusionAPP app(&camera);
+	try
+	{
+		app.execute();
+		app.release();
 	}
 	catch (const std::bad_alloc & /*e*/)
 	{

@@ -5,22 +5,22 @@
 #include <cstdlib>
 
 #include <intrin.h>
-#define CV_XADD(addr,delta) _InterlockedExchangeAdd((long volatile*)(addr), (delta))
+#define CV_XADD(addr, delta) _InterlockedExchangeAdd((long volatile *)(addr), (delta))
 ///
 namespace kf
 {
 	DeviceMemory::~DeviceMemory() { release(); }
-	DeviceMemory& DeviceMemory::operator =(const DeviceMemory& other_arg)
+	DeviceMemory &DeviceMemory::operator=(const DeviceMemory &other_)
 	{
-		if (this != &other_arg)
+		if (this != &other_)
 		{
-			if (other_arg.refcount)
-				CV_XADD(other_arg.refcount, 1);
+			if (other_.refcount_)
+				CV_XADD(other_.refcount_, 1);
 			release();
 
-			data_ = other_arg.data_;
-			size_ = other_arg.size_;
-			refcount = other_arg.refcount;
+			data_ = other_.data_;
+			size_ = other_.size_;
+			refcount_ = other_.refcount_;
 		}
 		return *this;
 	}
@@ -32,8 +32,8 @@ namespace kf
 				release();
 			size_ = s;
 			cudaSafeCall(cudaMalloc(&data_, size_));
-			refcount = new int;
-			*refcount = 1;
+			refcount_ = new int;
+			*refcount_ = 1;
 		}
 		else
 			return;
@@ -41,27 +41,26 @@ namespace kf
 	//
 	void DeviceMemory::release()
 	{
-		if (refcount && CV_XADD(refcount, -1) == 1)
+		if (refcount_ && CV_XADD(refcount_, -1) == 1)
 		{
 			// cv::fastFree(refcount);
-			delete refcount;
+			delete refcount_;
 			cudaSafeCall(cudaFree(data_));
 		}
 		data_ = 0;
 		size_ = 0;
-		refcount = 0;
+		refcount_ = 0;
 	}
 
-	void DeviceMemory::hostTodevice(const void *data, size_t size_)
+	void DeviceMemory::upload(const void *v, size_t s)
 	{
-		create(size_);
-		cudaSafeCall(cudaMemcpy(data_, data, size_, cudaMemcpyHostToDevice));
+		create(s);
+		cudaSafeCall(cudaMemcpy(data_, v, s, cudaMemcpyHostToDevice));
 	}
-	void DeviceMemory::deviceTohost(void *data)
+	void DeviceMemory::download(void *v)
 	{
-		cudaSafeCall(cudaMemcpy(data, data_, size_, cudaMemcpyDeviceToHost));
+		cudaSafeCall(cudaMemcpy(v, data_, size_, cudaMemcpyDeviceToHost));
 	}
 	size_t DeviceMemory::memorySize() { return size_; }
 	bool DeviceMemory::empty() { return !data_; }
-	void* DeviceMemory::data() { return data_; }
 }

@@ -3,7 +3,10 @@
 #include <math.h>
 #include <iostream>
 #include <opencv2/opencv.hpp>
-//
+#include <opencv2/viz/vizcore.hpp>
+
+#define STR(v) #v
+
 namespace kf
 {
     typedef cv::cuda::GpuMat GpuMat;
@@ -39,11 +42,9 @@ namespace kf
             cmap.setTo(0);
             for (int level = 0; level < pyr_height_; ++level)
             {
-                // 生成对应的GpuMat数据
                 vmap[level] = cv::cuda::createContinuous(intr.level(level).height, intr.level(level).width, CV_32FC3);
                 nmap[level] = cv::cuda::createContinuous(intr.level(level).height, intr.level(level).width, CV_32FC3);
                 dmap[level] = cv::cuda::createContinuous(intr.level(level).height, intr.level(level).width, CV_32FC1);
-                // 然后清空为0
                 vmap[level].setTo(0);
                 nmap[level].setTo(0);
                 dmap[level].setTo(0);
@@ -69,14 +70,14 @@ namespace kf
                 vmap[i].release();
             }
         };
-        Frame& operator=(Frame&& data) noexcept
-		{
-			vmap = std::move(data.vmap);
-			nmap = std::move(data.nmap);
-			cmap = std::move(data.cmap);
-			return *this;
-		};
+        Frame &operator=(Frame &&data) noexcept
+        {
+            vmap = std::move(data.vmap);
+            nmap = std::move(data.nmap);
+            cmap = std::move(data.cmap);
+            return *this;
+        };
     };
-    inline float deg2rad (float alpha) { return alpha * 0.017453293f; }
+    inline float deg2rad(float alpha) { return alpha * 0.017453293f; }
 
 }

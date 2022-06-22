@@ -16,7 +16,7 @@ namespace kf
         void setIterationNum(const std::vector<int> &iters);
         void setIntrinsics(const Intrinsics intrs_);
 
-        bool rigidTransform(cv::Affine3f& pose, const Frame* cframe,const Frame* pframe);
+        bool rigidTransform(cv::Affine3f &curpose, const cv::Affine3f prepose, const Frame *cframe, const Frame *pframe);
 
     private:
         std::vector<int> iters;

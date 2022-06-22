@@ -47,11 +47,10 @@ namespace kf
         {return ptr + znumber;};
 
         //ICP
-        ICP::ICP(const float dist_thres_, const float angle_thres_,const PoseT &prepose_)
+        ICP::ICP(const float dist_thres_, const float angle_thres_)
         {
           min_angle = angle_thres_;
           max_dist_squ = dist_thres_;
-          prepose = prepose_;
         }
         void ICP::setIntrs(const Intrs intrs_, int x, int y)
         {
@@ -77,25 +76,53 @@ namespace kf
 		}
 
         //Volume
-        __device__ void set_tsdf_weight(Volume::elem_type &value, float tsdf, int weight)
+        __device__ void set_voxel_tsdf(Volume::elem_type &value, float tsdf){ value.tsdf= max(-SHORTMAX, min(SHORTMAX, static_cast<int>(tsdf * SHORTMAX)));};
+        __device__ void set_voxel_weight(Volume::elem_type &value, int weight){value.weight=weight;};
+        __device__ void set_point_pos(Point3 &value,float3 in){value=in;};
+        __device__ void set_voxel_color(Volume::elem_type &value, uchar3 rgb){value.rgb=rgb;};
+        
+        __device__ float get_voxel_tsdf(Volume::elem_type value){return  static_cast<float>(value.tsdf)*DIVSHORTMAX;};
+        __device__ int get_voxel_weight(Volume::elem_type value){return value.weight;}; 
+        __device__ uchar3 get_voxel_color(Volume::elem_type value){return value.rgb;};
+
+        struct Warp
         {
-            value.tsdf = max(-SHORTMAX, min(SHORTMAX, static_cast<int>(tsdf * SHORTMAX)));
-            value.weight=weight;
+            enum
+            {
+                LOG_WARP_SIZE = 5,
+                WARP_SIZE     = 1 << LOG_WARP_SIZE,
+                STRIDE        = WARP_SIZE
+            };
+
+            /** \brief Returns the warp lane ID of the calling thread. */
+            static __device__ unsigned int laneId()
+            {
+                unsigned int ret;
+                asm("mov.u32 %0, %laneid;" : "=r"(ret) );
+                return ret;
+            }
+
+            static __device__ unsigned int id()
+            {
+                int tid = threadIdx.z * blockDim.x * blockDim.y + threadIdx.y * blockDim.x + threadIdx.x;
+                return tid >> LOG_WARP_SIZE;
+            }
+
+            static __device__ int laneMaskLt()
+            {
+#if (__CUDA_ARCH__ >= 200)
+                unsigned int ret;
+                asm("mov.u32 %0, %lanemask_lt;" : "=r"(ret) );
+                return ret;
+#else
+                return 0xFFFFFFFF >> (32 - laneId());
+#endif
+            }
+            static __device__ int binaryExclScan(int ballot_mask)
+            {
+                return __popc(Warp::laneMaskLt() & ballot_mask);
+            }
         };
 
-        template<class T>//使用在体素和点云
-        __device__ void set_rgb(T &value, uchar3 rgb) { value.rgb=rgb; };
-        template<class T>
-        __device__ void set_point(T &value, float3 pos,float3 nor) 
-        {   value.pos=pos; value.normal=nor; };
-        template<class T>
-        __device__ float3 get_pos(T value) { return value.pos; };
-        template<class T>
-        __device__ float3 get_normal(T value) { return value.normal; };
-        template<class T>
-        __device__ uchar3 get_rgb(T value) { return value.rgb; };
-
-        __device__ float voxel_tsdf(Volume::elem_type value){return  static_cast<float>(value.tsdf)*DIVSHORTMAX;};
-        __device__ int voxel_weight(Volume::elem_type value){return value.weight;}; 
     }
 }

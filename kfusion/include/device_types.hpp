@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <types.hpp>
 #include <math.h>
-#include <cuda_array.hpp>
+#include <device_array.hpp>
 
 #define DIVUP(a, b) (a + b - 1) / b
 #define MAXPOINTNUM 2000000
@@ -17,9 +17,10 @@ namespace kf
 	{
 		using namespace cv::cuda;
 		//此处定义设备内存存储方式
-		struct Point3RGB {float3 pos; float3 normal; uchar3 rgb;};
-		struct Point3 {float3 pos; float3 normal;};
-
+        typedef uchar3 Color;
+		typedef float3 Point3;
+		typedef float3 Normal;
+		
 		struct PoseR {float3 data[3];};
 
 		struct PoseT {PoseR R;float3 t;};
@@ -64,28 +65,13 @@ namespace kf
 
 			float min_angle;
 			float max_dist_squ;
-			PoseT prepose;
 			Intrs intr;
 			PoseT curpose;
 			int2 size;
 
-			ICP(const float dist_thres_, const float angle_thres_,const PoseT &prepose_);
+			ICP(const float dist_thres_, const float angle_thres_);
 			void setIntrs(const Intrs intrs_, int x, int y);
 			__device__ bool findCoresp(int x, int y, float3 &nd, float3 &d, float3 &s) const;
-		};
-
-		template<class T>
-        struct Array
-		{
-			typedef T elem_type;
-			elem_type* const data;
-            int elem_num;
-
-			Array(T* data_):data(data_),elem_num(0){};
-			__device__ __forceinline__ T *operator()(int index) const
-			{return data+index;};
-			__device__ __forceinline__ T *operator()(int index)
-			{return data+index;}
 		};
 	}
 }
@@ -96,7 +82,7 @@ namespace kf
 	{
 		// tsdf_volume
 		void resetVolume(Volume &vpointer);
-		void raycast(const Intrs &intr, const PoseT &pose, const Volume &vol, GpuMat &vmap, GpuMat &nmap);
+		void raycast(const Intrs &intr, const PoseT &pose,const PoseR &Rinv, const Volume &vol, GpuMat &vmap, GpuMat &nmap);
 		void integrate(const Intrs &intr, const PoseT &pose, Volume &volume, const GpuMat &dmap, const GpuMat &cmap);
 		// image process
 		void renderPhong(const float3 &poset, const GpuMat &vmap, const GpuMat &nmap, GpuMat &cmap);
@@ -108,8 +94,8 @@ namespace kf
 		// icp
 		void rigidICP(const ICP &icphelper, cv::Matx66d &A, cv::Vec6d &b);
 		// file
-		void extract_points(const Volume &vpointer, int *points_num_label, float *points, float *normals,unsigned char*colors);
-		void extract_points(const Volume& vpointer, Array<Point3RGB> &varrray);
+		//void extract_points(const Volume &vpointer, int *points_num_label, float *points, float *normals,unsigned char*colors);
+		size_t extract_points(const Volume& vpointer, PtrSz<Point3> parray,  const PoseT&);
 	}
 }
 
