@@ -13,6 +13,4 @@ reference:
 * Newcombe et al, KinectFusion: Real-time dense surface mapping and tracking
 * https://github.com/PointCloudLibrary/pcl/tree/master/gpu/kinfu
 
-![image1](https://github.com/baiyuntao00/KinectFusion/raw/main/doc/raycast-map.png)
-![image2](https://github.com/baiyuntao00/KinectFusion/raw/main/doc/raycast-normal.png)
 ![image3](https://github.com/baiyuntao00/KinectFusion/raw/main/doc/3D.png)
