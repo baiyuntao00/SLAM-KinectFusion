@@ -7,7 +7,7 @@ This is an kinectfusion-based 3D reconstruction system madde by Yuntao Bai.
 * opencv_cuda_viz (vcpkg)
 
 performance:
-running at about 20 ms per frame in windows PC with NVIDIA 1650Ti.
+running at about 18 ms per frame in windows PC with NVIDIA 1650Ti.
 
 reference:
 * Newcombe et al, KinectFusion: Real-time dense surface mapping and tracking
