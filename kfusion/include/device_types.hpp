@@ -10,32 +10,50 @@
 
 #define DIVUP(a, b) (a + b - 1) / b
 #define MAXPOINTNUM 2000000
-//TODO: struct data
+// TODO: struct data
 namespace kf
 {
 	namespace device
 	{
 		using namespace cv::cuda;
 		//此处定义设备内存存储方式
-        typedef uchar3 Color;
+		typedef uchar3 Color;
 		typedef float3 Point3;
 		typedef float3 Normal;
-		
-		struct PoseR {float3 data[3];};
 
-		struct PoseT {PoseR R;float3 t;};
+		struct PoseR
+		{
+			float3 data[3];
+		};
+
+		struct PoseT
+		{
+			PoseR R;
+			float3 t;
+		};
 
 		struct Intrs
 		{
+		public:
 			float2 f, c;
 			float2 finv;
-			Intrs();
-			Intrs(const Intrinsics &intr_);
-			__device__ float3 reproj(int u, int v, float z) const;
-			__device__ int2 proj(const float3 &p) const;
+			Intrs(){};
+			Intrs(const Intrinsics &intr_)
+			{
+				f = make_float2(intr_.fx, intr_.fy);
+				c = make_float2(intr_.cx, intr_.cy);
+				finv = make_float2(1.f / intr_.fx, 1.f / intr_.fy);
+			}
+			__device__ __forceinline__ float3 reproj(int u, int v, float z) const;
+			__device__ __forceinline__ int2 proj(const float3 &p) const;
 		};
 
-		struct Voxel {short tsdf;short weight;uchar3 rgb;};
+		struct Voxel
+		{
+			short tsdf;
+			short weight;
+			uchar3 rgb;
+		};
 
 		struct Volume
 		{
@@ -48,7 +66,11 @@ namespace kf
 			float trun_dist;
 			int znumber;
 			// host:
-			Volume(elem_type *data, const int3 dims_, const float3 volume_range_, const float3 voxel_size_);
+			Volume::Volume(elem_type *data, const int3 dims_, const float3 volume_range_, const float3 voxel_size_)
+				: data_(data), dims(dims_), volume_range(volume_range_), voxel_size(voxel_size_)
+			{
+				znumber = dims_.x * dims_.y;
+			};
 			// host and device:
 			__device__ __forceinline__ elem_type *operator()(int x, int y, int z) const;
 			__device__ __forceinline__ elem_type *operator()(int x, int y, int z);
@@ -69,20 +91,28 @@ namespace kf
 			PoseT curpose;
 			int2 size;
 
-			ICP(const float dist_thres_, const float angle_thres_);
-			void setIntrs(const Intrs intrs_, int x, int y);
+			ICP(const float dist_thres_, const float angle_thres_)
+			{
+				min_angle = angle_thres_;
+				max_dist_squ = dist_thres_;
+			}
+			void setIntrs(const Intrs intrs_, int x, int y)
+			{
+				intr = intrs_;
+				size = make_int2(x, y);
+			};
 			__device__ bool findCoresp(int x, int y, float3 &nd, float3 &d, float3 &s) const;
 		};
 	}
 }
-//TODO: .cu function
+// TODO: .cu function
 namespace kf
 {
 	namespace device
 	{
 		// tsdf_volume
 		void resetVolume(Volume &vpointer);
-		void raycast(const Intrs &intr, const PoseT &pose,const PoseR &Rinv, const Volume &vol, GpuMat &vmap, GpuMat &nmap);
+		void raycast(const Intrs &intr, const PoseT &pose, const PoseR &Rinv, const Volume &vol, GpuMat &vmap, GpuMat &nmap);
 		void integrate(const Intrs &intr, const PoseT &pose, Volume &volume, const GpuMat &dmap, const GpuMat &cmap);
 		// image process
 		void renderPhong(const float3 &poset, const GpuMat &vmap, const GpuMat &nmap, GpuMat &cmap);
@@ -94,12 +124,12 @@ namespace kf
 		// icp
 		void rigidICP(const ICP &icphelper, cv::Matx66d &A, cv::Vec6d &b);
 		// file
-		//void extract_points(const Volume &vpointer, int *points_num_label, float *points, float *normals,unsigned char*colors);
-		size_t extract_points(const Volume& vpointer, PtrSz<Point3> parray,  const PoseT&);
+		// void extract_points(const Volume &vpointer, int *points_num_label, float *points, float *normals,unsigned char*colors);
+		size_t extract_points(const Volume &vpointer, PtrSz<Point3> parray, const PoseT &);
 	}
 }
 
-//TODO:  mathfunction
+// TODO:  mathfunction
 namespace kf
 {
 	namespace device

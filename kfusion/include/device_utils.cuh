@@ -12,21 +12,14 @@ namespace kf
         namespace device
         {
         //Intrs
-        Intrs:: Intrs(){};
-        Intrs::Intrs(const Intrinsics &intr_)
-		{
-			f = make_float2(intr_.fx, intr_.fy);
-			c = make_float2(intr_.cx, intr_.cy);
-			finv = make_float2(1.f / intr_.fx, 1.f / intr_.fy);
-		}
-        __device__ int2 Intrs::proj(const float3 &p) const
+        __device__ __forceinline__ int2 Intrs::proj(const float3 &p) const
         {
             int2 coo;
             coo.x = __float2int_rn(__fdividef(p.x, p.z) * f.x + c.x);
             coo.y = __float2int_rn(__fdividef(p.y, p.z) * f.y + c.y);
             return coo;
         };
-        __device__ float3 Intrs::reproj(int u, int v, float z) const
+        __device__ __forceinline__ float3 Intrs::reproj(int u, int v, float z) const
         {
                 float x = __fdividef(z * (u - c.x),f.x);
                 float y = __fdividef(z * (v - c.y),f.y);
@@ -34,9 +27,6 @@ namespace kf
         };
 
         //Volume
-        Volume::Volume(elem_type *data, const int3 dims_, const float3 volume_range_, const float3 voxel_size_)
-        : data_(data),dims(dims_),volume_range(volume_range_),voxel_size(voxel_size_)
-        {znumber = dims_.x * dims_.y;};
         __device__ __forceinline__ Volume::elem_type *Volume::operator()(int x, int y, int z) const
 		{return data_ + x + y * dims.x + z * znumber;};
 		__device__ __forceinline__ Volume::elem_type *Volume::operator()(int x, int y, int z)
@@ -45,18 +35,6 @@ namespace kf
 		{return data_ + x + dims.x * y;};
 		__device__ __forceinline__ Volume::elem_type *Volume::zstep(elem_type *const ptr) const
         {return ptr + znumber;};
-
-        //ICP
-        ICP::ICP(const float dist_thres_, const float angle_thres_)
-        {
-          min_angle = angle_thres_;
-          max_dist_squ = dist_thres_;
-        }
-        void ICP::setIntrs(const Intrs intrs_, int x, int y)
-        {
-          intr = intrs_;
-          size = make_int2(x, y);
-        };
     }
 }
  //TODO: math and other functions more speed
@@ -76,14 +54,14 @@ namespace kf
 		}
 
         //Volume
-        __device__ void set_voxel_tsdf(Volume::elem_type &value, float tsdf){ value.tsdf= max(-SHORTMAX, min(SHORTMAX, static_cast<int>(tsdf * SHORTMAX)));};
-        __device__ void set_voxel_weight(Volume::elem_type &value, int weight){value.weight=weight;};
-        __device__ void set_point_pos(Point3 &value,float3 in){value=in;};
-        __device__ void set_voxel_color(Volume::elem_type &value, uchar3 rgb){value.rgb=rgb;};
+        __device__ __forceinline__ void set_voxel_tsdf(Volume::elem_type &value, float tsdf){ value.tsdf= max(-SHORTMAX, min(SHORTMAX, static_cast<int>(tsdf * SHORTMAX)));};
+        __device__ __forceinline__ void set_voxel_weight(Volume::elem_type &value, int weight){value.weight=weight;};
+        __device__ __forceinline__ void set_point_pos(Point3 &value,float3 in){value=in;};
+        __device__ __forceinline__ void set_voxel_color(Volume::elem_type &value, uchar3 rgb){value.rgb=rgb;};
         
-        __device__ float get_voxel_tsdf(Volume::elem_type value){return  static_cast<float>(value.tsdf)*DIVSHORTMAX;};
-        __device__ int get_voxel_weight(Volume::elem_type value){return value.weight;}; 
-        __device__ uchar3 get_voxel_color(Volume::elem_type value){return value.rgb;};
+        __device__ __forceinline__ float get_voxel_tsdf(Volume::elem_type value){return  static_cast<float>(value.tsdf)*DIVSHORTMAX;};
+        __device__ __forceinline__ int get_voxel_weight(Volume::elem_type value){return value.weight;}; 
+        __device__ __forceinline__ uchar3 get_voxel_color(Volume::elem_type value){return value.rgb;};
 
         struct Warp
         {

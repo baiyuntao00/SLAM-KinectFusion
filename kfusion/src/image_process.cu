@@ -1,4 +1,4 @@
-#include <device_types.hpp>
+#include <device_utils.cuh>
 #include <safe_call.hpp>
 namespace kf
 {
@@ -177,8 +177,8 @@ namespace kf
 			 
 		    float3 eye_pose_direction = eye_pos - vmap(y, x);
 			float3 light_direction = light_pos - vmap(y, x);
-			normalize(eye_pose_direction);
-			normalize(light_direction);
+			__m_normalize(eye_pose_direction);
+			__m_normalize(light_direction);
 
 			const float3 ambinent_light= make_float3(0.1f, 0.1f, 0.1f);
 			float light_cos = dot(normal, light_direction);
@@ -189,7 +189,7 @@ namespace kf
 			float light_coffi = light_intensity * light_cos;
 			float3 diffuse_light = kd * light_coffi;
             float3 h_ = light_direction + eye_pose_direction;
-			normalize(h_);
+			__m_normalize(h_);
 			float h_cos = dot(normal, h_);
 			if (h_cos < 0) {
 				h_cos = -h_cos;
@@ -215,7 +215,7 @@ namespace kf
 			dim3 grid(1, 1, 1);
 			grid.x = DIVUP(vmap.cols, block.x);
 			grid.y = DIVUP(vmap.rows, block.y);
-			// step 2 启动 GPU 核函数
+
 			kernel_renderPhong << < grid, block >> > (poset, vmap, nmap, cmap);
 			cudaSafeCall(cudaGetLastError());
 		}

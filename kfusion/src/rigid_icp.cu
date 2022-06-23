@@ -1,5 +1,5 @@
 #include <device_memory.hpp>
-#include <device_types.hpp>
+#include <device_utils.cuh>
 #include <safe_call.hpp>
 
 namespace kf
@@ -56,14 +56,14 @@ namespace device
 				if (vcur.z>0 && pixel.x >= 0 && pixel.y >= 0 && pixel.x < size.x && pixel.y < size.y)
 				{
 						float3 vpre=pre_vmap(pixel.y, pixel.x);
-						const float dist_2 = norm(vcur-vpre);
+						const float dist_2 = __m_norm(vcur-vpre);
 						if (dist_2 <= max_dist_squ) {
 
 							float3 ncur = curpose.R *cur_nmap(y, x);	        
 							float3 npre = pre_nmap(pixel.y, pixel.x);
 							float3 sinangle = cross(ncur, npre);
 
-							const float sine = norm(sinangle);
+							const float sine = __m_norm(sinangle);
 							if (sine <= min_angle)
 							{
 								n = npre;
