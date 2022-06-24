@@ -1,4 +1,4 @@
-# Online 3D Reconstruction-KinectFusion
+# KinectFusion-simple
 
 This is an kinectfusion-based 3D reconstruction system madde by Yuntao Bai.
 
